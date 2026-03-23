@@ -1,91 +1,47 @@
-# Leadso
+<div align="center">
 
-B2B lead generation SaaS that scrapes, enriches, and verifies leads using AI.
+# 🚀 Leadso: B2B Lead Generation Solution
+**Build High-Converting Lead Lists for Outbound Cold Email!**
 
-## Stack
+[![Website Status](https://img.shields.io/website?url=https%3A%2F%2Fleadso-app.netlify.app%2F&style=for-the-badge&label=Leadso%20Live)](https://leadso-app.netlify.app/)
+[![React](https://img.shields.io/badge/React-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)]()
+[![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=for-the-badge&logo=supabase&logoColor=white)]()
 
-- **Framework** — Next.js 15 (App Router)
-- **Auth & Database** — Supabase (PostgreSQL + RLS)
-- **Scraping** — Apify
-- **Email enrichment** — AnyMailFinder
-- **AI enrichment** — Anthropic Claude
-- **Styling** — Tailwind CSS v4
-- **Deployment** — Netlify
+[**Visit the Live App**](https://leadso-app.netlify.app/) • [**Sign Up for Free**](https://leadso-app.netlify.app/signup)
+</div>
 
-## Features
+---
 
-- Scrape leads by keyword/location via Apify actors
-- AI-powered lead enrichment with custom prompts
-- Email verification via AnyMailFinder
-- Orders history with CSV download
-- Supabase auth — signup, login, forgot/reset password
-- Per-user API key configuration
-- Fully responsive dashboard + landing page
+## 📖 Overview
 
-## Local Development
+**Leadso** is your go-to modern tool to search, verify, and export business emails so you can scale your cold outreach and book more meetings. Access our continuously refreshed database without any complex setups—and get **100 free credits upon sign up, no credit card required**.
 
-```bash
-npm install
-```
+## ⭐ Built for Performance
 
-Create `.env.local`:
+We provide all the tools you need in one simple, clear application to maximize your outreach ROI:
 
-```env
-NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-ANTHROPIC_API_KEY=your_anthropic_key
-APIFY_API_KEY=your_apify_key
-ANYMAILFINDER_API_KEY=your_anymailfinder_key
-```
+- **📇 Access 200M+ Contacts**: Tap into a continuously refreshed database of over 200M professionals and 20M+ verified companies worldwide.
+- **✨ High-Quality Database**: Tired of bounced emails? Our database is rigorously maintained to ensure you only outreach to high-intent, active leads.
+- **📊 Deep Data Enrichment**: Uncover buying roles, seniority, recent news, and rich metadata to fully contextualize your campaigns.
+- **⚡ Built for Simplicity**: No complex setups. Find target accounts and decision-makers in just a few clicks with our intuitive interface.
+- **💰 Unbeatable Affordability**: Scale your outreach without breaking the bank. Get premium, verified leads at an average of just $0.05 per credit.
+- **🛡️ Verify with 97% Accuracy**: Protect your sender reputation. Our engine detects personal, disposable, and invalid emails with incredibly high confidence.
 
-```bash
-npm run dev
-```
+---
 
-Open [http://localhost:3000](http://localhost:3000).
+## 💸 Simple, Transparent Pricing
 
-## Database
+Scale your revenue simply and affordably with plans built for your specific needs:
+- **Starter:** Perfect for getting off the ground.
+- **Growth:** Built for the scaling outbound team.
+- **Scale:** Tailored for high-volume teams that need infinite scale.
 
-Run the following in Supabase SQL Editor:
+*For full details on our pricing tiers, [visit the website](https://leadso-app.netlify.app/).*
 
-```sql
-CREATE TABLE IF NOT EXISTS app_config (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  apify_key TEXT NOT NULL DEFAULT '',
-  anthropic_key TEXT NOT NULL DEFAULT '',
-  anymailfinder_key TEXT NOT NULL DEFAULT '',
-  custom_prompt TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(user_id)
-);
+---
 
-CREATE TABLE IF NOT EXISTS jobs (
-  id TEXT PRIMARY KEY,
-  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  date TIMESTAMPTZ DEFAULT NOW(),
-  leads INTEGER DEFAULT 0,
-  verified INTEGER DEFAULT 0,
-  percent TEXT DEFAULT '0%',
-  status TEXT CHECK (status IN ('Pending','Completed','Failed')) DEFAULT 'Pending',
-  persona TEXT DEFAULT 'default',
-  raw_results JSONB,
-  enriched_results JSONB,
-  error TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+> *"Ready to scale your revenue? Join the thousands of businesses already growing with Leadso."*
 
-ALTER TABLE app_config ENABLE ROW LEVEL SECURITY;
-ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "users manage own config" ON app_config FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "users manage own jobs" ON jobs FOR ALL USING (auth.uid() = user_id);
-```
-
-## Deployment
-
-Deployed on Netlify with GitHub CI. Push to `main` triggers a new deploy.
+<div align="center">
+<i>Built with passion by the Leadso Team.</i>
+</div>
