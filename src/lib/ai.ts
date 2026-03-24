@@ -1,19 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { getConfig } from './db';
 import { PERSONA_PROMPTS } from './constants';
 
-function getAnthropicClient() {
-  const config = getConfig();
-  if (!config.anthropicKey) throw new Error("Anthropic API Key is missing");
-  return new Anthropic({ apiKey: config.anthropicKey });
+function getAnthropicClient(apiKey: string) {
+  if (!apiKey) throw new Error("Anthropic API Key is missing");
+  return new Anthropic({ apiKey });
 }
 
-async function generateCompletion(systemPrompt: string, userMessage: string): Promise<string> {
-  const config = getConfig();
-
-  if (config.anthropicKey) {
+async function generateCompletion(systemPrompt: string, userMessage: string, apiKey: string): Promise<string> {
+  if (apiKey) {
     try {
-      const anthropic = getAnthropicClient();
+      const anthropic = getAnthropicClient(apiKey);
       const response = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
         max_tokens: 1024,
@@ -31,7 +27,7 @@ async function generateCompletion(systemPrompt: string, userMessage: string): Pr
   throw new Error("No Anthropic API key available. Please configure it in Settings.");
 }
 
-export async function generateApifyPayload(jobName: string, maxItems: number) {
+export async function generateApifyPayload(jobName: string, maxItems: number, anthropicKey: string) {
   const systemPrompt = `You are a helpful assistant that translates a user's B2B target audience description (Job Name) into a strict JSON payload for a LinkedIn Leads scraper.
 
 You must return valid JSON ONLY. No markdown wrapping. No explanatory text.
@@ -74,7 +70,7 @@ Example output:
 
   const userMessage = `Generate the scraper payload for this Job Name: "${jobName}"`;
 
-  const rawJson = await generateCompletion(systemPrompt, userMessage);
+  const rawJson = await generateCompletion(systemPrompt, userMessage, anthropicKey);
 
   try {
     let cleanedJson = rawJson.replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -96,11 +92,11 @@ Example output:
   }
 }
 
-export async function generateIcebreaker(lead: any, persona: string = 'default'): Promise<{ verdict: string, icebreaker: string, shortenedCompanyName: string }> {
+export async function generateIcebreaker(lead: any, persona: string = 'default', anthropicKey: string): Promise<{ verdict: string, icebreaker: string, shortenedCompanyName: string }> {
   const leadInfo = `${lead.firstName || lead.firstDomain || ''} ${lead.lastName || ''}, ${lead.title || lead.jobTitle || ''} - ${lead.companyName || lead.organizationName || ''}, ${lead.industry || ''}, ${lead.location || lead.city || ''}, ${lead.country || ''}`;
 
   const prompt = PERSONA_PROMPTS[persona] ?? PERSONA_PROMPTS['default'];
-  const rawResponse = await generateCompletion(prompt, leadInfo);
+  const rawResponse = await generateCompletion(prompt, leadInfo, anthropicKey);
 
   try {
     let cleanedResponse = rawResponse.replace(/```json/gi, '').replace(/```/g, '').trim();

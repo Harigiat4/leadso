@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
-import { generateApifyPayload, generateIcebreaker } from '@/lib/ai';
+import { generateApifyPayload } from '@/lib/ai';
 import crypto from 'crypto';
+import { z } from 'zod';
+
+const scrapeSchema = z.object({
+  jobName: z.string().min(1, 'Job name is required').max(100),
+  maxLeads: z.coerce.number().int().min(1).max(500).default(20),
+  persona: z.string().optional().default('default')
+});
 
 export async function POST(request: Request) {
   try {
@@ -10,16 +17,42 @@ export async function POST(request: Request) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { jobName, maxLeads, persona } = await request.json();
-
-    if (!jobName) {
-      return NextResponse.json({ error: 'Job name is required' }, { status: 400 });
+    const body = await request.json().catch(() => ({}));
+    const parseResult = scrapeSchema.safeParse(body);
+    if (!parseResult.success) {
+      return NextResponse.json({ error: parseResult.error.issues[0].message }, { status: 400 });
     }
 
-    const { APIFY_API_KEY } = process.env;
-    if (!APIFY_API_KEY) {
-      return NextResponse.json({ error: 'Apify API key is missing' }, { status: 400 });
+    const { jobName, maxLeads, persona } = parseResult.data;
+
+    // Rate limit: max 5 jobs per hour
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count, error: rlError } = await supabaseAdmin
+      .from('jobs')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .gte('date', oneHourAgo);
+
+    if (rlError) return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    if (count !== null && count >= 5) {
+      return NextResponse.json({ error: 'Rate limit exceeded. Maximum 5 jobs per hour.' }, { status: 429 });
     }
+
+    // Get user API keys
+    const { data: configData } = await supabaseAdmin
+      .from('app_config')
+      .select('apify_key, anthropic_key')
+      .eq('user_id', user.id)
+      .single();
+
+    const apifyKey = configData?.apify_key || process.env.APIFY_API_KEY;
+    const anthropicKey = configData?.anthropic_key || process.env.ANTHROPIC_API_KEY;
+
+    if (!apifyKey) return NextResponse.json({ error: 'Apify API key is missing. Please add it in Config.' }, { status: 400 });
+    if (!anthropicKey) return NextResponse.json({ error: 'Anthropic API key is missing. Please add it in Config.' }, { status: 400 });
+
+    // Generate AI search payload
+    const payload = await generateApifyPayload(jobName, maxLeads, anthropicKey);
 
     const jobId = 'JOB-' + crypto.randomUUID().split('-')[0].toUpperCase();
 
@@ -35,24 +68,18 @@ export async function POST(request: Request) {
       persona: persona || 'default',
     });
 
-    // Run async background — pass userId so the background job can write back
-    processBackgroundJob(jobId, user.id, jobName, parseInt(maxLeads) || 20, APIFY_API_KEY, persona || 'default');
-
-    return NextResponse.json({ success: true, jobId, status: 'Pending' });
-  } catch (error) {
-    console.error('Error starting scrape job:', error);
-    return NextResponse.json({ error: 'Failed to start scrape' }, { status: 500 });
-  }
-}
-
-async function processBackgroundJob(jobId: string, userId: string, jobName: string, maxLeads: number, apifyKey: string, persona: string) {
-  try {
-    const payload = await generateApifyPayload(jobName, maxLeads);
-
+    // Start Apify actor run asynchronously + configure webhook for completion
     const actorId = 'kVYdvNOefemtiDXO5';
-    console.log(`Starting Apify Actor ${actorId} for ${jobId}...`);
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://leadso-app.netlify.app';
 
-    const apifyUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${apifyKey}`;
+    const webhookConfig = JSON.stringify([{
+      eventTypes: ['ACTOR.RUN.SUCCEEDED', 'ACTOR.RUN.FAILED', 'ACTOR.RUN.TIMED_OUT', 'ACTOR.RUN.ABORTED'],
+      requestUrl: `${siteUrl}/api/webhook/apify?jobId=${jobId}`,
+      payloadTemplate: '{"datasetId":"{{defaultDatasetId}}","status":"{{status}}"}',
+    }]);
+
+    const webhooksParam = Buffer.from(webhookConfig).toString('base64');
+    const apifyUrl = `https://api.apify.com/v2/acts/${actorId}/runs?token=${apifyKey}&webhooks=${encodeURIComponent(webhooksParam)}`;
 
     const apifyRes = await fetch(apifyUrl, {
       method: 'POST',
@@ -62,84 +89,17 @@ async function processBackgroundJob(jobId: string, userId: string, jobName: stri
 
     if (!apifyRes.ok) {
       const errText = await apifyRes.text();
-      throw new Error(`Apify returned ${apifyRes.status}: ${errText}`);
-    }
-
-    const rawLeads = await apifyRes.json();
-
-    if (rawLeads.length > 0 && rawLeads[0].error) {
-      throw new Error(`Apify Actor Error: ${rawLeads[0].error}`);
-    }
-
-    const validLeads = rawLeads.filter((l: any) => l.email || l.linkedinUrl || l.orgName || l.firstName);
-
-    if (validLeads.length === 0) {
       await supabaseAdmin.from('jobs').update({
-        status: 'Completed',
-        leads: 0,
-        verified: 0,
-        percent: '0%',
-        raw_results: [],
-        enriched_results: [],
+        status: 'Failed',
+        error: `Apify error ${apifyRes.status}: ${errText}`,
       }).eq('id', jobId);
-      return;
+      return NextResponse.json({ error: 'Failed to start Apify run' }, { status: 500 });
     }
 
-    const targetLeads = validLeads.slice(0, maxLeads);
-    const enrichedLeads: any[] = [];
-    let validIcebreakers = 0;
-
-    for (const lead of targetLeads) {
-      const normalizedLead = {
-        firstName:      lead.firstName || '',
-        lastName:       lead.lastName || '',
-        fullName:       `${lead.firstName || ''} ${lead.lastName || ''}`.trim(),
-        title:          lead.position || '',
-        companyName:    lead.orgName || '',
-        location:       [lead.city, lead.state, lead.country].filter(Boolean).join(', ') || '',
-        email:          lead.email || 'N/A',
-        linkedInUrl:    lead.linkedinUrl || '',
-        industry:       lead.orgIndustry || '',
-        companySize:    lead.orgSize || '',
-        companyWebsite: lead.orgWebsite || '',
-        phone:          lead.phone || '',
-        emailStatus:    lead.emailStatus || '',
-        seniority:      lead.seniority || '',
-        city:           lead.city || '',
-        state:          lead.state || '',
-        country:        lead.country || '',
-      };
-
-      const icebreakerRes = await generateIcebreaker(normalizedLead, persona);
-
-      enrichedLeads.push({
-        ...normalizedLead,
-        icebreakerVerdict: icebreakerRes.verdict,
-        personalization: icebreakerRes.icebreaker,
-        shortenedCompanyName: icebreakerRes.shortenedCompanyName,
-      });
-
-      if (String(icebreakerRes.verdict).toLowerCase() === 'true') validIcebreakers++;
-    }
-
-    await supabaseAdmin.from('jobs').update({
-      status: 'Completed',
-      leads: enrichedLeads.length,
-      verified: validIcebreakers,
-      percent: enrichedLeads.length > 0
-        ? Math.round((validIcebreakers / enrichedLeads.length) * 100) + '%'
-        : '0%',
-      raw_results: targetLeads,
-      enriched_results: enrichedLeads,
-    }).eq('id', jobId);
-
-    console.log(`Job ${jobId} completed: ${enrichedLeads.length} leads`);
+    return NextResponse.json({ success: true, jobId, status: 'Pending' });
 
   } catch (error: any) {
-    console.error(`Job ${jobId} failed:`, error);
-    await supabaseAdmin.from('jobs').update({
-      status: 'Failed',
-      error: error?.message || 'Unknown error',
-    }).eq('id', jobId);
+    console.error('Error starting scrape job:', error);
+    return NextResponse.json({ error: error?.message || 'Failed to start scrape' }, { status: 500 });
   }
 }
