@@ -10,13 +10,17 @@ export async function POST(request: Request) {
     if (!jobId) return NextResponse.json({ error: 'Missing jobId' }, { status: 400 });
 
     const body = await request.json().catch(() => ({}));
-    const { datasetId, status } = body;
 
-    // Handle non-success outcomes from Apify
-    if (status !== 'SUCCEEDED') {
+    // Apify default webhook payload: { eventType, resource: { status, defaultDatasetId, ... } }
+    const resource = body.resource ?? {};
+    const runStatus: string = resource.status ?? body.eventType ?? '';
+    const datasetId: string = resource.defaultDatasetId ?? '';
+
+    // Handle non-success outcomes
+    if (runStatus !== 'SUCCEEDED') {
       await supabaseAdmin.from('jobs').update({
         status: 'Failed',
-        error: `Apify run ${status?.toLowerCase() ?? 'failed'}`,
+        error: `Apify run ${runStatus.toLowerCase() || 'failed'}`,
       }).eq('id', jobId);
       return NextResponse.json({ ok: true });
     }

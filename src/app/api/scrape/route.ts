@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     const webhookConfig = JSON.stringify([{
       eventTypes: ['ACTOR.RUN.SUCCEEDED', 'ACTOR.RUN.FAILED', 'ACTOR.RUN.TIMED_OUT', 'ACTOR.RUN.ABORTED'],
       requestUrl: `${siteUrl}/api/webhook/apify?jobId=${jobId}`,
-      payloadTemplate: '{"datasetId":"{{defaultDatasetId}}","status":"{{status}}"}',
+      // No payloadTemplate — use Apify's default payload which includes body.resource.status + body.resource.defaultDatasetId
     }]);
 
     const webhooksParam = Buffer.from(webhookConfig).toString('base64');
