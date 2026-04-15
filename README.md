@@ -36,7 +36,7 @@ Scale your revenue simply and affordably with plans built for your specific need
 - **Growth:** Built for the scaling outbound team.
 - **Scale:** Tailored for high-volume teams that need infinite scale.
 
-*For full details on our pricing tiers, [visit the website](https://leadso-app.netlify.app/).*
+*For full Demo, [visit the website](https://leadso-app.netlify.app/).*
 
 ---
 
